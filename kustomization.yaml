@@ -11,4 +11,4 @@ resources:
 images:
   - name: example-service
     newName: ghcr.io/jozefcvik-gitops-lab/example-service
-    newTag: v26.10.22.05
+    newTag: v26.10.26.07
