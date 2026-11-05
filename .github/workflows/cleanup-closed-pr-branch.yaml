@@ -14,13 +14,45 @@ concurrency:
 jobs:
   delete-branch:
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        startsWith(github.event.pull_request.head.ref, 'deploy/')
-      }}
     steps:
+      - name: Evaluate cleanup conditions
+        id: check
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+
+          proceed=true
+          reason=""
+
+          if [ "$HEAD_REPO" != "$REPO" ]; then
+            proceed=false
+            reason="PR head branch comes from a fork ('$HEAD_REPO'), not this repository."
+          elif [[ "$BRANCH" != deploy/* ]]; then
+            proceed=false
+            reason="Branch '$BRANCH' does not start with the required 'deploy/' prefix."
+          fi
+
+          echo "proceed=$proceed" >> "$GITHUB_OUTPUT"
+
+          if [ "$proceed" = "false" ]; then
+            echo "::notice title=Branch cleanup skipped::$reason"
+            {
+              echo "### Branch cleanup skipped"
+              echo ""
+              echo "- **Branch:** \`$BRANCH\`"
+              echo "- **Reason:** $reason"
+              echo ""
+              echo "_Only branches named \`deploy/*\` originating from this repository are auto-deleted._"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::notice title=Branch cleanup::Proceeding with cleanup of '$BRANCH'."
+          fi
+
       - name: Delete head branch if it still exists
+        if: steps.check.outputs.proceed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ github.event.pull_request.head.ref }}
@@ -33,6 +65,16 @@ jobs:
             echo "Branch '$BRANCH' exists -> deleting."
             gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH"
             echo "Branch '$BRANCH' deleted."
+            {
+              echo "### Branch cleanup done"
+              echo ""
+              echo "- **Branch:** \`$BRANCH\` was deleted."
+            } >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Branch '$BRANCH' no longer exists (likely Automatic delete) -> nothing to do."
+            {
+              echo "### Branch cleanup done"
+              echo ""
+              echo "- **Branch:** \`$BRANCH\` no longer exists (likely removed by GitHub's automatic delete) — nothing to do."
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
