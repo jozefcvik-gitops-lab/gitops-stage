@@ -1,0 +1,38 @@
+name: cleanup-closed-pr-branch
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-closed-pr-branch
+  cancel-in-progress: false
+
+jobs:
+  delete-branch:
+    runs-on: ubuntu-latest
+    if: >-
+      ${{
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        startsWith(github.event.pull_request.head.ref, 'deploy/')
+      }}
+    steps:
+      - name: Delete head branch if it still exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Automatic delete may have removed the branch at merge time -> check first.
+          if gh api "repos/$REPO/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
+            echo "Branch '$BRANCH' exists -> deleting."
+            gh api -X DELETE "repos/$REPO/git/refs/heads/$BRANCH"
+            echo "Branch '$BRANCH' deleted."
+          else
+            echo "Branch '$BRANCH' no longer exists (likely Automatic delete) -> nothing to do."
+          fi
